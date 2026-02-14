@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PredEditor - Editor multiplo </title>
+
+    <!-- 
+        CodeMirror – libreria per l'editor di codice con syntax highlighting, 
+        numeri di riga, temi, autocompletamento base, ecc.
+    -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.css">
+
+    <!-- Modalità di highlighting per i vari linguaggi -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/xml/xml.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/javascript/javascript.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/css/css.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/clike/clike.min.css">     <!-- per C / C++ -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/python/python.min.css">
+
+    <!-- Tema scuro monokai (molto usato negli editor moderni) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/theme/monokai.min.css">
+
+    <!-- Pyodide – interprete Python completo in WebAssembly -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+
+    <style>
+        /* =========================================================================
+           RESET E LAYOUT GENERALE
+        ========================================================================= */
+
+        * {
+            box-sizing: border-box;         /* tutti gli elementi includono padding e border nella larghezza */
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            height: 100vh;                  /* occupa tutta l'altezza della viewport */
+            background: #f5f5f0;            /* grigio-beige molto chiaro per lo sfondo generale */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;               /* impedisce scroll indesiderato del body */
+        }
+
+        /* =========================================================================
+           TOOLBAR (barra superiore con pulsanti e titolo)
+        ========================================================================= */
+
+        #toolbar {
+            background: #1e1e1e;            /* nero scuro/grigio molto scuro */
+            color: #e0e0e0;                 /* testo chiaro */
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;                 /* non si rimpicciolisce mai */
+            border-bottom: 1px solid #333;
+        }
+
+        #toolbar h1 {
+            margin: 0;
+            font-size: 1.35rem;
+            font-weight: 800;
+            color: #ffdd44;                 /* giallo acceso per il titolo "PredEditor" */
+            letter-spacing: -0.5px;
+        }
+
+        #toolbar .subtitle {
+            color: #888;
+            font-style: italic;
+            font-size: 0.9rem;
+        }
+
+        button {
+            padding: 7px 14px;
+            background: #333;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.92rem;
+            transition: background 0.12s;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        /* Pulsanti con colori semantici */
+        button.run    { background: #2e7d32; }      /* verde per "esegui" */
+        button.run:hover    { background: #388e3c; }
+
+        button.preview { background: #1565c0; }     /* blu per "preview" */
+        button.preview:hover { background: #1976d2; }
+
+        /* =========================================================================
+           LAYOUT PRINCIPALE (flex row: sidebar sinistra + editor centrale)
+        ========================================================================= */
+
+        #main {
+            flex: 1;                        /* occupa tutto lo spazio rimanente */
+            display: flex;
+            overflow: hidden;               /* importante per evitare scroll indesiderati */
+        }
+
+        /* Sidebar sinistra – elenco file + sezione git */
+        #sidebar-left {
+            width: 220px;
+            background: rgba(80, 80, 80, 0.4);  /* grigio semitrasparente */
+            color: #ddd;
+            padding: 12px;
+            overflow-y: auto;
+            border-right: 1px solid #444;
+            flex-shrink: 0;
+        }
+
+        #sidebar-left h3 {
+            margin: 0 0 10px 0;
+            font-size: 1rem;
+            color: #ccc;
+        }
+
+        #file-list li {
+            padding: 6px 8px;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.1s;
+        }
+
+        #file-list li:hover,
+        #file-list li.active {
+            background: rgba(255,255,255,0.12);
+            color: #ffdd44;                 /* giallo per evidenziare tab/file attivo */
+        }
+
+        #git-section {
+            margin-top: 20px;
+        }
+
+        #git-section button {
+            width: 100%;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+
+        /* =========================================================================
+           AREA EDITOR CENTRALE
+        ========================================================================= */
+
+        #editor-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #fef9e7;            /* crema chiaro / "bianco sporco" richiesto */
+            min-height: 0;                  /* fix per flex child con overflow */
+        }
+
+        #tabs {
+            display: flex;
+            background: #2a2a2a;            /* sfondo tabs scuro */
+            border-bottom: 1px solid #444;
+            flex-shrink: 0;                 /* tabs non si comprimono */
+        }
+
+        .tab {
+            padding: 9px 16px;
+            color: #bbb;
+            cursor: pointer;
+            user-select: none;
+            background: #222;
+            border-right: 1px solid #333;
+            transition: all 0.12s;
+        }
+
+        .tab.active {
+            background: #fef9e7;            /* stesso colore del fondo editor quando attivo */
+            color: #222;
+            font-weight: bold;
+        }
+
+        /* Contenitore di ogni istanza CodeMirror */
+        .editor {
+            display: none;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .editor.active {
+            display: block;
+        }
+
+        /* CodeMirror occupa tutto lo spazio disponibile */
+        .CodeMirror {
+            height: 100% !important;
+            font-size: 1.03rem;
+            background: #fef9e7;            /* stesso colore crema dell'area */
+            color: #111;
+        }
+    </style>
+</head>
+<body>
+
+<!-- =============================================================================
+     HTML STRUTTURA
+============================================================================= -->
+
+<div id="toolbar">
+    <h1>PredEditor</h1>
+    <span class="subtitle">— EdeFede </span>
+
+    <div style="margin-left: auto; display: flex; gap: 10px;">
+        <button onclick="openFile()">Apri File</button>
+        <button onclick="saveFile()">Salva</button>
+        <button onclick="saveAsFile()">Salva Come</button>
+        <button class="run" onclick="runCode()">Compila / Esegui</button>
+        <button class="preview" onclick="openPreview()">Preview</button>
+        <button onclick="addTabWithChoice()">+ Nuovo</button>
+    </div>
+</div>
+
+<div id="main">
+    <div id="sidebar-left">
+        <h3>File aperti</h3>
+        <ul id="file-list"></ul>
+
+        <div id="git-section">
+            <h3>Git Support (Alpha)</h3>
+            <button onclick="gitClone()">Clone Repo</button>
+            <button onclick="gitCommit()">Commit Changes</button>
+            <button onclick="gitPush()">Push to Remote</button>
+            <p id="git-status">Status: Non inizializzato</p>
+        </div>
+    </div>
+
+    <div id="editor-area">
+        <div id="tabs"></div>
+        <div id="editors" style="flex:1; position:relative;"></div>
+    </div>
+</div>
+
+<!-- Script CodeMirror + modalità -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/clike/clike.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/python/python.min.js"></script>
+
+<!-- Isomorphic-git + filesystem in memoria -->
+<script src="https://unpkg.com/isomorphic-git@1.25.10/index.umd.min.js"></script>
+<script src="https://unpkg.com/@isomorphic-git/lightning-fs@latest/dist/lightning-fs.min.js"></script>
+
+<script>
+// =============================================================================
+// VARIABILI GLOBALI
+// =============================================================================
+
+let currentTab = 0;                     // indice del tab attivo
+let tabs = [];                          // array di oggetti {content, filename, lang}
+let fileHandles = {};                   // map tabIndex → FileSystemFileHandle (per salvare nativo)
+let tabCounter = 1;                     // contatore per nomi untitled-1, untitled-2...
+let editors = [];                       // array di istanze CodeMirror
+let pyodideInstance = null;             // verrà caricato solo la prima volta che si esegue Python
+
+// =============================================================================
+// TEMPLATE DI DEFAULT PER NUOVI FILE
+// =============================================================================
+
+const templates = {
+    html: '<!doctype html>\n<html lang="it">\n<head>\n    <meta charset="UTF-8">\n    <title></title>\n</head>\n<body>\n\n</body>\n</html>',
+    js: '// javascript code here\nconsole.log("hello world");',
+    css: '/* css styles */\nbody {\n    background-color: #f0f0f0;\n}',
+    c: '#include <stdio.h>\n#include <stdlib.h>\n\nint main() {\n    // code here\n    return 0;\n}',
+    py: '# python code\nprint("hello world")'
+};
+
+// Mappa linguaggio → modalità CodeMirror
+const mimeModes = {
+    html: 'xml',
+    js: 'javascript',
+    css: 'css',
+    c: 'text/x-csrc',
+    py: 'python'
+};
+
+// =============================================================================
+// FUNZIONI PRINCIPALI
+// =============================================================================
+
+/**
+ * Carica Pyodide (Python in WebAssembly) solo la prima volta che serve
+ * @returns {Promise<Pyodide>}
+ */
+async function loadPyodideInstance() {
+    if (!pyodideInstance) {
+        pyodideInstance = await loadPyodide({
+            indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/"
+        });
+    }
+    return pyodideInstance;
+}
+
+/**
+ * Crea un nuovo tab con linguaggio scelto dall'utente
+ * @param {string} [lang='html']
+ */
+function addTab(lang = 'html') {
+    const ext = { html: '.html', js: '.js', css: '.css', c: '.c', py: '.py' }[lang];
+    const filename = `untitled-\( {tabCounter} \){ext}`;
+    const content = templates[lang] || '';
+
+    const tabId = tabs.length;
+    tabs.push({ content, filename, lang });
+
+    // Crea pulsante tab
+    const tabBtn = document.createElement('div');
+    tabBtn.className = 'tab';
+    tabBtn.textContent = filename;
+    tabBtn.onclick = () => switchTab(tabId);
+    document.getElementById('tabs').appendChild(tabBtn);
+
+    // Crea contenitore per CodeMirror
+    const editorDiv = document.createElement('div');
+    editorDiv.className = 'editor';
+    editorDiv.id = `editor-${tabId}`;
+    document.getElementById('editors').appendChild(editorDiv);
+
+    // Inizializza CodeMirror
+    const cm = CodeMirror(editorDiv, {
+        value: content,
+        mode: mimeModes[lang] || 'text/plain',
+        lineNumbers: true,
+        theme: 'monokai',
+        indentUnit: 4,
+        indentWithTabs: false,
+        extraKeys: { "Tab": cm => cm.replaceSelection("    ") }
+    });
+
+    editors[tabId] = cm;
+
+    // Aggiorna contenuto quando l'utente scrive
+    cm.on('change', () => {
+        tabs[tabId].content = cm.getValue();
+    });
+
+    switchTab(tabId);
+    tabCounter++;
+    updateFileList();
+}
+
+/**
+ * Chiede all'utente il linguaggio e crea il tab
+ */
+function addTabWithChoice() {
+    const lang = prompt('Scegli linguaggio: html, js, css, c, py (default: html)').toLowerCase().trim();
+    const valid = ['html','js','css','c','py'].includes(lang) ? lang : 'html';
+    addTab(valid);
+}
+
+/**
+ * Cambia tab attivo e aggiorna visualizzazione
+ * @param {number} id 
+ */
+function switchTab(id) {
+    document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === id));
+    document.querySelectorAll('.editor').forEach((e, i) => e.classList.toggle('active', i === id));
+    currentTab = id;
+    editors[id]?.refresh();             // importante per CodeMirror dopo display:none → block
+    updateFileList();
+}
+
+/**
+ * Aggiorna la lista file nella sidebar sinistra
+ */
+function updateFileList() {
+    const ul = document.getElementById('file-list');
+    ul.innerHTML = '';
+    tabs.forEach((t, i) => {
+        const li = document.createElement('li');
+        li.textContent = t.filename;
+        if (i === currentTab) li.className = 'active';
+        li.onclick = () => switchTab(i);
+        ul.appendChild(li);
+    });
+}
+
+/**
+ * Apre file dal disco usando File System Access API (solo Chrome/Edge)
+ */
+async function openFile() {
+    try {
+        const [handle] = await window.showOpenFilePicker();
+        const file = await handle.getFile();
+        const text = await file.text();
+        const ext = file.name.split('.').pop().toLowerCase();
+        const lang = ['html','js','css','c','py'].includes(ext) ? ext : 'html';
+
+        addTab(lang);
+        const newTabId = tabs.length - 1;
+        editors[newTabId].setValue(text);
+        tabs[newTabId].content = text;
+        tabs[newTabId].filename = file.name;
+        document.querySelectorAll('.tab')[newTabId].textContent = file.name;
+        fileHandles[newTabId] = handle;
+        updateFileList();
+    } catch (e) {
+        if (e.name !== 'AbortError') console.error(e);
+    }
+}
+
+/**
+ * Salva sul file già associato (se esiste)
+ */
+async function saveFile() {
+    const handle = fileHandles[currentTab];
+    if (!handle) return saveAsFile();
+
+    try {
+        const writable = await handle.createWritable();
+        await writable.write(tabs[currentTab].content);
+        await writable.close();
+        // Potresti aggiungere qui un feedback visivo (es. icona salvato)
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+/**
+ * Salva con nome (File System Access API) → finestra di salvataggio
+ */
+async function saveAsFile() {
+    try {
+        const lang = tabs[currentTab].lang;
+        const ext = '.' + lang;
+        const suggestedName = tabs[currentTab].filename.replace(/\.\w+$/, '') + ext;
+
+        const handle = await window.showSaveFilePicker({
+            suggestedName,
+            types: [{
+                description: 'File di codice',
+                accept: { 'text/plain': ['.html','.js','.css','.c','.py'] }
+            }]
+        });
+
+        const writable = await handle.createWritable();
+        await writable.write(tabs[currentTab].content);
+        await writable.close();
+
+        fileHandles[currentTab] = handle;
+        tabs[currentTab].filename = handle.name || tabs[currentTab].filename;
+        document.querySelectorAll('.tab')[currentTab].textContent = tabs[currentTab].filename;
+        updateFileList();
+    } catch (e) {
+        if (e.name !== 'AbortError') console.error(e);
+    }
+}
+
+/**
+ * Esegue / interpreta / simula il codice a seconda del linguaggio
+ */
+async function runCode() {
+    const code = tabs[currentTab].content;
+    const lang = tabs[currentTab].lang;
+
+    if (lang === 'js') {
+        try {
+            const fn = new Function(code);
+            const result = fn();
+            alert('Risultato JavaScript:\n' + (result ?? 'eseguito senza valore di ritorno'));
+        } catch (err) {
+            alert('Errore in JavaScript:\n' + err.message);
+        }
+    }
+    else if (lang === 'css') {
+        const html = `<style>${code}</style><body><h1>Test CSS</h1><p>Questo è un paragrafo di prova.</p></body>`;
+        const blob = new Blob([html], {type: 'text/html'});
+        window.open(URL.createObjectURL(blob), '_blank');
+    }
+    else if (lang === 'py') {
+        try {
+            const pyodide = await loadPyodideInstance();
+            let output = '';
+            pyodide.setStdout({ batched: s => output += s });
+            const result = pyodide.runPython(code);
+            alert('Output Python:\n' + (output || result || 'eseguito'));
+        } catch (err) {
+            alert('Errore Python:\n' + err.message);
+        }
+    }
+    else if (lang === 'c') {
+        alert('Compilazione ed esecuzione C non ancora implementata in-browser.\n' +
+              '(Per avere esecuzione reale servirebbe un compilatore C→WASM runtime o backend)');
+        // Possibile futuro: integrare tinygo, emscripten compiled to wasm, o simili
+    }
+    else if (lang === 'html') {
+        const blob = new Blob([code], {type: 'text/html'});
+        window.open(URL.createObjectURL(blob), '_blank');
+    }
+    else {
+        alert('Esecuzione non supportata per questo tipo di file in questa versione.');
+    }
+}
+
+/**
+ * Apre anteprima (solo HTML per ora, CSS reindirizza a runCode)
+ */
+function openPreview() {
+    const lang = tabs[currentTab].lang;
+    if (lang === 'html' || lang === 'css') {
+        runCode();  // per css apre finestra con <style>
+    } else {
+        alert('Anteprima disponibile solo per HTML e CSS.');
+    }
+}
+
+// =============================================================================
+// GIT (molto basilare – solo dimostrativo)
+// =============================================================================
+
+const fs = new LightningFS('prededitor-fs');
+const git = window.git;
+let gitDir = '/repo';
+
+async function gitClone() {
+    const url = prompt('URL del repository da clonare (es https://github.com/user/repo.git)');
+    if (!url) return;
+    try {
+        await git.clone({
+            fs,
+            http: { fetch: async (input, init) => {
+                const resp = await fetch(input, init);
+                return {
+                    statusCode: resp.status,
+                    headers: new Map([...resp.headers]),
+                    body: [await resp.arrayBuffer()]
+                };
+            }},
+            dir: gitDir,
+            url,
+            singleBranch: true,
+            depth: 1
+        });
+        document.getElementById('git-status').textContent = 'Status: Repository clonato';
+        alert('Repository clonato con successo (in memoria)');
+    } catch (err) {
+        alert('Errore durante clone:\n' + err.message);
+    }
+}
+
+async function gitCommit() {
+    const msg = prompt('Messaggio di commit:');
+    if (!msg) return;
+    try {
+        await git.add({ fs, dir: gitDir, filepath: '.' });
+        await git.commit({
+            fs,
+            dir: gitDir,
+            message: msg,
+            author: { name: 'PredEditor User', email: 'pred@example.com' }
+        });
+        document.getElementById('git-status').textContent = 'Status: Commit effettuato';
+    } catch (err) {
+        alert('Errore commit:\n' + err.message);
+    }
+}
+
+async function gitPush() {
+    alert('Push non implementato completamente (manca autenticazione sicura in browser).\n' +
+          'Solo simulazione per alpha.');
+    // git.push richiede credenziali → difficile in puro browser senza token esposto
+}
+
+// =============================================================================
+// INIZIALIZZAZIONE
+// =============================================================================
+
+addTabWithChoice();     // apre il prompt iniziale per creare il primo tab
+
+</script>
+</body>
+</html>
