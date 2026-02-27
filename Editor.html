@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PredEditor CodeForge — Editor C/C++/Python</title>
+
+<!-- 
+  ============================================================
+  FONT IMPORTATION
+  Carichiamo 2 font da Google Fonts:
+  - JetBrains Mono: font monospazio per il codice (simile a quelli usati in VS Code)
+  - DM Sans: font proporzionale per l'interfaccia utente (bottoni, menu, status)
+  ============================================================
+-->
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* 
+  ============================================================
+  CSS RESET & VARIABILI GLOBALI
+  ============================================================
+  Reset: azzera margini, padding e imposta box-sizing border-box
+  per tutti gli elementi, così i calcoli di larghezza/altezza
+  includono bordi e padding.
+  
+  :root contiene le CSS Custom Properties (variabili) che definiscono
+  l'intero tema colori dell'editor in stile GitHub Dark.
+*/
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  /* Sfondo principale e varianti più chiare */
+  --bg:#0d1117;       /* sfondo editor (più scuro) */
+  --bg2:#161b22;      /* sfondo toolbar, tabs, gutter */
+  --bg3:#1c2128;      /* sfondo bottoni, elementi interattivi */
+  --bg4:#21262d;      /* sfondo hover bottoni */
+
+  /* Colori bordi */
+  --border:#30363d;   /* bordo standard */
+  --border2:#484f58;  /* bordo hover (più visibile) */
+
+  /* Colori testo */
+  --fg:#e6edf3;       /* testo principale (chiaro) */
+  --fg2:#8b949e;      /* testo secondario (grigio medio) */
+  --fg3:#6e7681;      /* testo terziario (grigio scuro, numeri riga) */
+
+  /* Colori accent e sintassi */
+  --accent:#58a6ff;   /* blu accent principale */
+  --accent2:#1f6feb;  /* blu più scuro (sfondo bottoni primary) */
+  --green:#3fb950;    /* verde (successo, output ok) */
+  --red:#f85149;      /* rosso (errori) */
+  --orange:#d29922;   /* arancio (preprocessore, indicatore modifiche) */
+  --purple:#bc8cff;   /* viola (funzioni) */
+  --cyan:#79c0ff;     /* ciano (tipi, numeri) */
+  --pink:#f778ba;     /* rosa (decoratori Python) */
+  --yellow:#e3b341;   /* giallo (parentesi) */
+
+  /* Font families */
+  --font-mono:'JetBrains Mono',monospace;  /* per il codice */
+  --font-ui:'DM Sans',sans-serif;          /* per l'interfaccia */
+
+  /* Dimensioni comuni */
+  --radius:8px;       /* border-radius per bottoni e input */
+  --line-h:22px;      /* altezza riga nel codice */
+  --font-size:14px;   /* dimensione font codice */
+  --pad-left:16px;    /* padding sinistro area codice */
+  --pad-top:12px;     /* padding superiore area codice */
+}
+
+/* Corpo pagina: occupa tutto lo schermo, senza scroll */
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--font-ui)}
+
+/* Layout principale: colonna flessibile che riempie il viewport */
+.app{display:flex;flex-direction:column;height:100vh}
+
+/* 
+  ============================================================
+  TOOLBAR (barra strumenti in alto)
+  ============================================================
+  Flexbox orizzontale con wrap per adattarsi a schermi piccoli.
+  flex-shrink:0 impedisce che venga compresso dal contenuto sotto.
+*/
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.toolbar-group{display:flex;align-items:center;gap:6px}
+/* Separatore verticale tra gruppi di bottoni */
+.toolbar-sep{width:1px;height:24px;background:var(--border);margin:0 4px}
+
+/* 
+  ============================================================
+  BOTTONI
+  ============================================================
+  Stile base con varianti:
+  - .btn          → bottone standard (sfondo scuro)
+  - .btn.primary  → bottone blu (azioni principali come Compila)
+  - .btn.success  → bottone verde (Esegui)
+  transition per hover animato su background e bordi.
+*/
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--fg);font-family:var(--font-ui);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:hover{background:var(--bg4);border-color:var(--border2)}
+.btn.primary{background:var(--accent2);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent);filter:brightness(1.1)}
+.btn.success{background:#238636;border-color:var(--green);color:#fff}
+.btn.success:hover{background:var(--green)}
+.btn svg{width:15px;height:15px;flex-shrink:0}
+
+/* Select per la scelta del linguaggio */
+select.lang-sel{padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--fg);font-family:var(--font-ui);font-size:12.5px;cursor:pointer;outline:none}
+select.lang-sel:focus{border-color:var(--accent)}
+
+/* Logo: "Pred" in blu accent, "Editor" in arancio */
+.logo{font-family:var(--font-mono);font-weight:700;font-size:15px;color:var(--accent);letter-spacing:-0.5px;margin-right:8px}
+.logo span{color:var(--orange)}
+
+/* 
+  ============================================================
+  TABS (schede file)
+  ============================================================
+  Barra di tab scrollabile orizzontalmente.
+  Ogni tab mostra: pallino arancio se modificato, nome file, X per chiudere.
+  La X è invisibile fino all'hover sul tab (opacity trick).
+*/
+.tabs-bar{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto}
+.tab{display:flex;align-items:center;gap:6px;padding:8px 16px;font-size:12.5px;font-weight:500;color:var(--fg2);border-right:1px solid var(--border);cursor:pointer;white-space:nowrap;transition:all .15s}
+.tab:hover{background:var(--bg3);color:var(--fg)}
+/* Tab attivo: sfondo scuro, linea blu superiore via box-shadow inset */
+.tab.active{background:var(--bg);color:var(--fg);box-shadow:inset 0 2px 0 var(--accent)}
+.tab .close-tab{opacity:0;margin-left:4px;font-size:14px;cursor:pointer;color:var(--fg3)}
+.tab:hover .close-tab{opacity:1}
+.tab .close-tab:hover{color:var(--red)}
+/* Pallino arancio per tab modificati (non salvati) */
+.tab .dot{width:6px;height:6px;border-radius:50%;background:var(--orange);display:none}
+.tab.modified .dot{display:block}
+/* Bottone "+" per aggiungere nuovi tab */
+.tab-add{padding:8px 12px;color:var(--fg3);cursor:pointer;font-size:18px;display:flex;align-items:center}
+.tab-add:hover{color:var(--fg);background:var(--bg3)}
+
+/* 
+  ============================================================
+  LAYOUT PRINCIPALE
+  ============================================================
+  .main-area: flexbox orizzontale che contiene editor + output
+  .editor-pane: occupa tutto lo spazio disponibile (flex:1)
+*/
+.main-area{display:flex;flex:1;overflow:hidden}
+.editor-pane{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+
+/* 
+  ============================================================
+  AREA EDITOR
+  ============================================================
+  L'editor usa la tecnica "textarea trasparente + pre sovrapposto":
+  
+  1. Il <textarea> (codeArea) è dove l'utente scrive. Il suo testo è
+     reso trasparente (color:transparent) ma il cursore resta visibile
+     (caret-color). Gestisce input, selezione, copia/incolla nativamente.
+  
+  2. Il <pre> (highlightPre) è posizionato in modo assoluto sopra il
+     textarea, con pointer-events:none (i click passano attraverso).
+     Contiene lo stesso testo ma con <span> colorati per la sintassi.
+  
+  Il gutter (numeri di riga) è un div a sinistra con larghezza fissa.
+  Lo scroll del gutter è sincronizzato con lo scroll dell'editor.
+*/
+.editor-wrap{flex:1;display:flex;overflow:hidden}
+
+/* Gutter: colonna numeri di riga */
+.gutter{width:52px;background:var(--bg2);border-right:1px solid var(--border);overflow:hidden;flex-shrink:0}
+.gutter-inner{padding-top:var(--pad-top)}
+.gutter-line{height:var(--line-h);line-height:var(--line-h);text-align:right;padding-right:12px;font-family:var(--font-mono);font-size:var(--font-size);color:var(--fg3);user-select:none}
+.gutter-line.active{color:var(--fg)} /* riga corrente evidenziata */
+
+/* Container scrollabile dell'editor */
+.editor-scroll{flex:1;overflow:auto;background:var(--bg)}
+.editor-inner{position:relative;min-height:100%}
+
+/* Stile base condiviso tra textarea e pre */
+.code-display{
+  padding:var(--pad-top) var(--pad-left);
+  font-family:var(--font-mono);font-size:var(--font-size);line-height:var(--line-h);
+  white-space:pre-wrap;word-wrap:break-word;
+  color:var(--fg);cursor:text;min-height:100%;
+  outline:none;tab-size:4;
+}
+
+/* Classe per textarea nascosto (non usata nella versione attuale) */
+.hidden-input{
+  position:fixed;top:-9999px;left:-9999px;opacity:0;width:1px;height:1px;
+}
+
+/* Cursore lampeggiante (per eventuale implementazione custom) */
+.cursor-blink{
+  display:inline-block;width:2px;height:var(--line-h);
+  background:var(--fg);animation:blink 1s step-end infinite;
+  vertical-align:text-bottom;margin-left:-1px;margin-right:-1px;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* Evidenziazione selezione */
+.sel-highlight{background:rgba(88,166,255,.25);border-radius:2px}
+
+/* 
+  ============================================================
+  CLASSI SYNTAX HIGHLIGHTING
+  ============================================================
+  Ogni classe sy-* corrisponde a un tipo di token:
+  - sy-kw: keyword (rosso, es. if, for, while, return)
+  - sy-ty: tipi (ciano, es. int, float, string, vector)
+  - sy-st: stringhe (azzurro chiaro)
+  - sy-nu: numeri (ciano)
+  - sy-cm: commenti (grigio, italic)
+  - sy-fn: nomi funzione (viola)
+  - sy-pp: direttive preprocessore C/C++ (arancio)
+  - sy-br: parentesi/brackets (giallo)
+  - sy-bi: builtin Python (verde, es. print, len, range)
+  - sy-dc: decoratori Python (rosa, es. @property)
+  - sy-co: costanti (ciano bold, es. NULL, True, False)
+*/
+.sy-kw{color:#ff7b72;font-weight:500}
+.sy-ty{color:var(--cyan)}
+.sy-st{color:#a5d6ff}
+.sy-nu{color:#79c0ff}
+.sy-cm{color:#6e7681;font-style:italic}
+.sy-fn{color:#d2a8ff}
+.sy-pp{color:var(--orange)}
+.sy-br{color:var(--yellow)}
+.sy-bi{color:var(--green)}
+.sy-dc{color:var(--pink)}
+.sy-co{color:var(--cyan);font-weight:600}
+
+/* 
+  ============================================================
+  PANNELLO OUTPUT
+  ============================================================
+  Pannello laterale destro (380px) per mostrare risultati
+  di compilazione/esecuzione. Può essere collassato.
+  Le classi .err, .ok, .info colorano i messaggi.
+*/
+.output-pane{width:380px;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .2s}
+.output-pane.collapsed{width:0;border:none;overflow:hidden}
+.output-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--fg2)}
+.output-content{flex:1;overflow:auto;padding:12px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--fg)}
+.output-content .err{color:var(--red)}     /* messaggi errore */
+.output-content .ok{color:var(--green)}    /* messaggi successo */
+.output-content .info{color:var(--cyan)}   /* messaggi informativi */
+
+/* 
+  ============================================================
+  STATUS BAR (barra di stato in basso)
+  ============================================================
+  Mostra: linguaggio | riga/colonna | nome file
+*/
+.status-bar{display:flex;align-items:center;justify-content:space-between;padding:4px 16px;background:var(--accent2);font-size:12px;color:#fff;flex-shrink:0}
+.status-bar .right{display:flex;gap:16px}
+
+/* 
+  ============================================================
+  MODALE (dialogo Salva come...)
+  ============================================================
+  Overlay semitrasparente con blur + box modale centrato.
+  backdrop-filter:blur(4px) sfoca lo sfondo dietro.
+*/
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:380px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.modal h3{margin-bottom:16px;font-size:16px;color:var(--fg)}
+.modal input[type=text]{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--fg);font-family:var(--font-mono);font-size:13px;outline:none;margin-bottom:6px}
+.modal input:focus{border-color:var(--accent)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.modal .hint{font-size:12px;color:var(--fg3);margin-bottom:14px}
+
+/* 
+  ============================================================
+  BARRA CERCA (Ctrl+F)
+  ============================================================
+  Appare in alto a destra dell'editor quando attivata.
+  Contiene: input ricerca, bottoni ▼/▲ per navigare, contatore, X chiudi.
+*/
+.find-bar{display:none;position:absolute;top:0;right:20px;z-index:10;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 8px 8px;padding:8px 12px;gap:8px;align-items:center;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.find-bar.visible{display:flex}
+.find-bar input{padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-family:var(--font-mono);font-size:12px;outline:none;width:200px}
+.find-bar input:focus{border-color:var(--accent)}
+.find-bar .find-info{font-size:11px;color:var(--fg3);min-width:50px}
+
+/* Scrollbar personalizzate (Webkit/Chrome/Edge) */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--border2)}
+
+/* 
+  ============================================================
+  RESPONSIVE (schermi < 768px)
+  ============================================================
+  - Output pane diventa fullscreen quando aperto
+  - Toolbar più compatta
+  - Label bottoni nascoste (restano solo le icone)
+*/
+@media(max-width:768px){
+  .output-pane{position:fixed;right:0;top:0;bottom:0;z-index:50;width:100%!important}
+  .output-pane.collapsed{width:0!important}
+  .toolbar{padding:6px 10px;gap:5px}
+  .btn{padding:5px 10px;font-size:11px}
+  .btn .blabel{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- 
+  ============================================================
+  STRUTTURA HTML
+  ============================================================
+  L'app è organizzata verticalmente:
+  1. Toolbar (barra strumenti)
+  2. Tabs bar (schede file)
+  3. Main area (editor + output)
+  4. Status bar
+-->
+<div class="app">
+
+  <!-- ==================== TOOLBAR ==================== -->
+  <div class="toolbar">
+    <!-- Logo dell'editor -->
+    <div class="logo">Pred<span>Editor</span> CodeForge</div>
+    <div class="toolbar-sep"></div>
+
+    <!-- Gruppo: operazioni file (Nuovo, Apri, Salva, Salva come) -->
+    <div class="toolbar-group">
+      <button class="btn" onclick="newFile()" title="Ctrl+N">
+        <!-- Icona SVG: foglio con "+" -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        <span class="blabel">Nuovo</span>
+      </button>
+      <button class="btn" onclick="openFile()" title="Ctrl+O">
+        <!-- Icona SVG: cartella -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        <span class="blabel">Apri</span>
+      </button>
+      <button class="btn" onclick="saveFile()" title="Ctrl+S">
+        <!-- Icona SVG: floppy disk -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+        <span class="blabel">Salva</span>
+      </button>
+      <button class="btn" onclick="saveFileAs()" title="Salva con nome">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+        <span class="blabel">Salva come</span>
+      </button>
+    </div>
+    <div class="toolbar-sep"></div>
+
+    <!-- Gruppo: selezione linguaggio -->
+    <div class="toolbar-group">
+      <!-- Il cambio di valore chiama changeLang() che aggiorna syntax e tab -->
+      <select class="lang-sel" id="langSelect" onchange="changeLang(this.value)">
+        <option value="c">C (.c)</option>
+        <option value="cpp">C++ (.cpp)</option>
+        <option value="python" selected>Python (.py)</option>
+      </select>
+    </div>
+    <div class="toolbar-sep"></div>
+
+    <!-- Gruppo: esecuzione -->
+    <div class="toolbar-group">
+      <!-- Esegui: per Python usa Pyodide locale, per C/C++ suggerisce Compila -->
+      <button class="btn success" onclick="runCode()" title="F5">
+        <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        <span class="blabel">Esegui</span>
+      </button>
+      <!-- Compila & Esegui: invia il codice a Wandbox API (compilatore online) -->
+      <button class="btn primary" onclick="compileAndRun()" title="F6">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg>
+        <span class="blabel">Compila&amp;Esegui</span>
+      </button>
+    </div>
+    <div class="toolbar-sep"></div>
+
+    <!-- Gruppo: output e cerca -->
+    <div class="toolbar-group">
+      <button class="btn" onclick="toggleOutput()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <span class="blabel">Output</span>
+      </button>
+      <button class="btn" onclick="toggleFind()" title="Ctrl+F">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ==================== TABS BAR ==================== -->
+  <!-- I tab vengono generati dinamicamente da JavaScript -->
+  <div class="tabs-bar" id="tabsBar">
+    <div class="tab-add" onclick="newFile()" title="Nuovo tab">+</div>
+  </div>
+
+  <!-- ==================== AREA PRINCIPALE ==================== -->
+  <div class="main-area">
+    <div class="editor-pane">
+
+      <!-- Barra cerca (nascosta di default, toggle con Ctrl+F) -->
+      <div class="find-bar" id="findBar">
+        <input type="text" id="findInput" placeholder="Cerca..."
+          oninput="doFind()"
+          onkeydown="if(event.key==='Enter')findNext();if(event.key==='Escape')toggleFind()">
+        <button class="btn" onclick="findNext()" style="padding:4px 8px;font-size:11px">▼</button>
+        <button class="btn" onclick="findPrev()" style="padding:4px 8px;font-size:11px">▲</button>
+        <span class="find-info" id="findInfo"></span>
+        <button class="btn" onclick="toggleFind()" style="padding:4px 8px;font-size:11px">✕</button>
+      </div>
+
+      <!-- Wrapper editor: gutter (numeri riga) + area codice -->
+      <div class="editor-wrap">
+        <!-- Gutter: numeri di riga generati da JS -->
+        <div class="gutter" id="gutter">
+          <div class="gutter-inner" id="gutterInner"></div>
+        </div>
+
+        <!-- Area scrollabile che contiene textarea + pre overlay -->
+        <div class="editor-scroll" id="editorScroll">
+          <div class="editor-inner">
+            <!-- 
+              TEXTAREA: dove l'utente scrive realmente.
+              - color: transparent (il testo è invisibile)
+              - caret-color: var(--fg) (il cursore è visibile!)
+              - spellcheck/autocomplete disabilitati
+              - wrap="off" per scroll orizzontale
+            -->
+            <textarea class="code-display" id="codeArea" spellcheck="false"
+              autocomplete="off" autocorrect="off" autocapitalize="off" wrap="off"
+              style="width:100%;border:none;outline:none;resize:none;background:transparent;
+              color:var(--fg);font-family:var(--font-mono);font-size:var(--font-size);
+              line-height:var(--line-h);padding:var(--pad-top) var(--pad-left);
+              white-space:pre;tab-size:4;min-height:100%;display:block;
+              caret-color:var(--fg);"></textarea>
+
+            <!-- 
+              PRE (highlight layer): mostra lo stesso testo con colori sintassi.
+              - position:absolute + top:0 left:0 → si sovrappone al textarea
+              - pointer-events:none → click/scroll passano al textarea sotto
+              - aria-hidden="true" → ignorato dagli screen reader
+              Il suo innerHTML viene aggiornato da render() ad ogni input.
+            -->
+            <pre class="code-display" id="highlightPre" aria-hidden="true"
+              style="position:absolute;top:0;left:0;right:0;pointer-events:none;margin:0;
+              padding:var(--pad-top) var(--pad-left);white-space:pre;tab-size:4;
+              overflow:hidden;background:transparent;border:none;"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PANNELLO OUTPUT ==================== -->
+    <div class="output-pane" id="outputPane">
+      <div class="output-header">
+        <span>📟 Output</span>
+        <button class="btn" onclick="clearOutput()" style="padding:3px 8px;font-size:11px">Pulisci</button>
+      </div>
+      <div class="output-content" id="outputContent">
+        <span class="info">PredEditor CodeForge pronto. Scrivi il codice e premi Esegui (F5) o Compila&amp;Esegui (F6).</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== STATUS BAR ==================== -->
+  <div class="status-bar">
+    <span id="statusLang">Python</span>
+    <div class="right">
+      <span id="statusPos">Riga 1, Col 1</span>
+      <span id="statusFile">nuovo.py</span>
+    </div>
+  </div>
+</div>
+
+<!-- Input file nascosto: attivato programmaticamente da openFile() -->
+<input type="file" id="fileInput" style="display:none"
+  accept=".c,.cpp,.cc,.cxx,.h,.hpp,.py,.pyw,.txt"
+  onchange="handleFileOpen(event)">
+
+<script>
+/*
+  ================================================================
+  SEZIONE 1: STATO GLOBALE DELL'APPLICAZIONE
+  ================================================================
+  Variabili che mantengono lo stato di tutto l'editor.
+*/
+
+// Array di tab aperti. Ogni tab è un oggetto:
+// { id, name, lang, content, filePath, modified, cursor }
+let tabs = [];
+
+// ID del tab attualmente visualizzato (null se nessuno)
+let activeTabId = null;
+
+// Contatore incrementale per generare ID unici per i tab
+let tabCounter = 0;
+
+// Stato di Pyodide (runtime Python nel browser)
+let pyodideReady = false;      // true quando Pyodide è caricato e pronto
+let pyodideInstance = null;    // riferimento all'istanza Pyodide
+let pyodideLoading = false;    // true durante il caricamento (evita caricamenti multipli)
+
+/*
+  ================================================================
+  SEZIONE 2: COSTANTI E TEMPLATE
+  ================================================================
+*/
+
+// Template di codice iniziale per ogni linguaggio
+// Viene inserito quando si crea un nuovo file
+const TEMPLATES = {
+  c: '#include <stdio.h>\n\nint main() {\n    printf("Ciao dal C!\\n");\n    return 0;\n}\n',
+  cpp: '#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Ciao dal C++!" << endl;\n    return 0;\n}\n',
+  python: '# PredEditor CodeForge - Python\nprint("Ciao da Python!")\n\nfor i in range(5):\n    print(f"  Iterazione {i}")\n'
+};
+
+// Mappa linguaggio → estensione file
+const EXT = { c: '.c', cpp: '.cpp', python: '.py' };
+
+// Mappa linguaggio → nome visualizzato nella status bar
+const LNAME = { c: 'C', cpp: 'C++', python: 'Python' };
+
+/*
+  ================================================================
+  SEZIONE 3: RIFERIMENTI DOM
+  ================================================================
+  Cacheiamo i riferimenti agli elementi DOM usati frequentemente
+  per evitare di cercarli ogni volta con getElementById.
+*/
+const codeArea = document.getElementById('codeArea');         // textarea principale
+const highlightPre = document.getElementById('highlightPre'); // pre con syntax highlight
+const editorScroll = document.getElementById('editorScroll'); // container scrollabile
+const gutterInner = document.getElementById('gutterInner');   // contenitore numeri riga
+const gutter = document.getElementById('gutter');             // colonna numeri riga
+
+/*
+  ================================================================
+  SEZIONE 4: UTILITY
+  ================================================================
+*/
+
+/**
+ * escHTML(s) - Escape HTML entities
+ * 
+ * Converte i caratteri speciali HTML in entità sicure:
+ *   & → &amp;    < → &lt;    > → &gt;
+ * 
+ * FONDAMENTALE per il syntax highlighting: il codice sorgente
+ * può contenere < e > (es. #include <stdio.h>, template<T>)
+ * che verrebbero interpretati come tag HTML se non escapati.
+ * 
+ * @param {string} s - Stringa da escapare
+ * @returns {string} Stringa con entità HTML
+ */
+function escHTML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/*
+  ================================================================
+  SEZIONE 5: SYNTAX HIGHLIGHTING (motore)
+  ================================================================
+  Il sistema di highlighting funziona in 2 fasi:
+  
+  FASE 1 - getRules(lang): restituisce un array di regole per il
+  linguaggio. Ogni regola è { regex, cls } dove:
+  - regex: espressione regolare che matcha un tipo di token
+  - cls: classe CSS da applicare (es. 'sy-kw' per keyword)
+  
+  L'ORDINE delle regole è CRUCIALE: le regole più prioritarie
+  vengono prima. Per esempio, i commenti e le stringhe hanno
+  priorità massima perché una keyword dentro un commento
+  NON deve essere colorata come keyword.
+  
+  FASE 2 - syntaxHighlight(code, lang): scansiona il codice da
+  sinistra a destra, trova il match più vicino tra tutte le regole,
+  lo wrappa in uno <span>, e continua.
+*/
+
+/**
+ * getRules(lang) - Restituisce le regole di syntax highlighting
+ * 
+ * Ogni regola è un oggetto { regex, cls } dove regex è una RegExp
+ * con flag 'gm' (global, multiline) e cls è la classe CSS.
+ * 
+ * L'ordine definisce la priorità: le regole all'inizio vincono
+ * sui match delle regole successive (commenti > keyword > tipi ecc.)
+ * 
+ * @param {string} lang - 'python', 'c', o 'cpp'
+ * @returns {Array<{regex: RegExp, cls: string}>}
+ */
+function getRules(lang) {
+  // Helper: crea un oggetto regola da una regex sorgente e una classe CSS
+  const r = (src, cls) => ({ regex: new RegExp(src.source, 'gm'), cls });
+
+  if (lang === 'python') return [
+    // PRIORITÀ 1: Stringhe triple (possono contenere di tutto, incluse keyword)
+    r(/"""[\s\S]*?"""|'''[\s\S]*?'''/, 'sy-st'),
+    // PRIORITÀ 2: Commenti (# fino a fine riga)
+    r(/#[^\n]*/, 'sy-cm'),
+    // PRIORITÀ 3: f-string (stringhe formattate Python 3.6+)
+    r(/f"(?:[^"\\]|\\.)*"|f'(?:[^'\\]|\\.)*'/, 'sy-st'),
+    // PRIORITÀ 4: Stringhe normali (singole e doppie)
+    r(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/, 'sy-st'),
+    // Decoratori Python (@nome)
+    r(/@\w+(?:\.\w+)*/, 'sy-dc'),
+    // Keyword del linguaggio Python
+    r(/\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b/, 'sy-kw'),
+    // Funzioni builtin di Python (print, len, range, ecc.)
+    r(/\b(?:print|len|range|input|open|str|int|float|list|dict|set|tuple|type|isinstance|hasattr|getattr|setattr|super|abs|all|any|bin|chr|dir|enumerate|eval|exec|filter|format|hash|hex|id|iter|map|max|min|next|oct|ord|pow|repr|reversed|round|sorted|sum|zip|bool|bytes|bytearray|object|property|classmethod|staticmethod|frozenset|memoryview|complex|slice|vars|globals|locals|compile|breakpoint|divmod|help)\b/, 'sy-bi'),
+    // Nomi di tipi Python
+    r(/\b(?:int|float|str|bool|list|dict|tuple|set|frozenset|bytes|bytearray|complex|range|type|object|NoneType)\b/, 'sy-ty'),
+    // Numeri: hex(0x), bin(0b), oct(0o), decimali, float, complessi(j)
+    r(/\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?j?)\b/, 'sy-nu'),
+    // Parentesi e brackets
+    r(/[{}()\[\]]/, 'sy-br'),
+  ];
+
+  // ---- C / C++ ----
+  // Le keyword cambiano tra C e C++ (C++ ha class, template, try, catch, ecc.)
+  const kw = lang === 'c'
+    ? /\b(?:auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|inline|int|long|register|restrict|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while)\b/
+    : /\b(?:alignas|alignof|auto|bool|break|case|catch|char|char8_t|char16_t|char32_t|class|concept|const|consteval|constexpr|constinit|const_cast|continue|co_await|co_return|co_yield|decltype|default|delete|do|double|dynamic_cast|else|enum|explicit|export|extern|false|float|for|friend|goto|if|inline|int|long|mutable|namespace|new|noexcept|nullptr|operator|override|final|private|protected|public|register|reinterpret_cast|requires|return|short|signed|sizeof|static|static_assert|static_cast|struct|switch|template|this|thread_local|throw|true|try|typedef|typeid|typename|union|unsigned|using|virtual|void|volatile|while)\b/;
+
+  // Tipi: C ha i tipi base + stdint.h, C++ aggiunge STL containers
+  const types = lang === 'c'
+    ? /\b(?:int|char|float|double|void|long|short|unsigned|signed|size_t|FILE|bool|uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|ptrdiff_t|wchar_t)\b/
+    : /\b(?:int|char|float|double|void|long|short|unsigned|signed|bool|string|vector|map|set|list|deque|queue|stack|pair|tuple|array|shared_ptr|unique_ptr|weak_ptr|size_t|auto|wstring|stringstream|fstream|ifstream|ofstream|iostream|ostream|istream|iterator)\b/;
+
+  // Costanti predefinite
+  const consts = lang === 'c'
+    ? /\b(?:NULL|EOF|TRUE|FALSE|STDIN|STDOUT|STDERR|EXIT_SUCCESS|EXIT_FAILURE)\b/
+    : /\b(?:NULL|nullptr|true|false|EOF|stdin|stdout|stderr|std|npos)\b/;
+
+  return [
+    // PRIORITÀ 1: Commenti multi-riga /* ... */ (possono contenere qualsiasi cosa)
+    r(/\/\*[\s\S]*?\*\//, 'sy-cm'),
+    // PRIORITÀ 2: Commenti single-line // ...
+    r(/\/\/[^\n]*/, 'sy-cm'),
+    // PRIORITÀ 3: Direttive preprocessore (#include, #define, ecc.)
+    // ^ = inizio riga, \s* = spazi opzionali prima di #
+    r(/^\s*#\s*(?:include|define|undef|ifdef|ifndef|if|else|elif|endif|error|pragma|warning|line)\b[^\n]*/, 'sy-pp'),
+    // PRIORITÀ 4: Stringhe (doppie e singole con escape)
+    r(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/, 'sy-st'),
+    // Costanti (NULL, true, false ecc.)
+    r(consts, 'sy-co'),
+    // Keyword del linguaggio
+    r(kw, 'sy-kw'),
+    // Tipi
+    r(types, 'sy-ty'),
+    // Numeri: hex, binary, float con suffissi (f, L, u)
+    r(/\b(?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+\.?\d*[fFlLuU]*(?:[eE][+-]?\d+)?)\b/, 'sy-nu'),
+    // Parentesi
+    r(/[{}()\[\]]/, 'sy-br'),
+  ];
+}
+
+/**
+ * syntaxHighlight(code, lang) - Genera HTML con syntax highlighting
+ * 
+ * ALGORITMO (tokenizer greedy left-to-right):
+ * 1. Parti dalla posizione 0 nel codice sorgente
+ * 2. Per ogni regola, prova a matchare dalla posizione corrente
+ * 3. Prendi il match che inizia più a sinistra (il più vicino)
+ * 4. Tutto il testo PRIMA del match → testo normale (non colorato)
+ * 5. Il match stesso → wrappato in <span class="sy-xxx">
+ * 6. Avanza la posizione dopo il match e ripeti
+ * 
+ * Questo approccio garantisce che i token ad alta priorità
+ * (commenti, stringhe) "mangino" il testo prima che le regole
+ * a bassa priorità possano matchare al loro interno.
+ * 
+ * @param {string} code - Codice sorgente
+ * @param {string} lang - Linguaggio ('c', 'cpp', 'python')
+ * @returns {string} HTML con <span> colorati
+ */
+function syntaxHighlight(code, lang) {
+  const rules = getRules(lang);
+  const tokens = [];  // Array di token { cls, text, index, length }
+  let pos = 0;       // Posizione corrente di scansione
+
+  while (pos < code.length) {
+    let best = null;  // Miglior match trovato (più a sinistra)
+
+    // Prova ogni regola dalla posizione corrente
+    for (const rule of rules) {
+      rule.regex.lastIndex = pos;  // Forza la ricerca da pos
+      const m = rule.regex.exec(code);
+      // Prendi il match che inizia prima (più a sinistra)
+      if (m && (!best || m.index < best.index)) {
+        best = { cls: rule.cls, text: m[0], index: m.index, length: m[0].length };
+      }
+    }
+
+    // Nessun match trovato → tutto il resto è testo normale
+    if (!best || best.index >= code.length) {
+      tokens.push({ cls: null, text: code.slice(pos) });
+      break;
+    }
+
+    // Testo tra posizione corrente e il match → testo normale
+    if (best.index > pos) {
+      tokens.push({ cls: null, text: code.slice(pos, best.index) });
+    }
+
+    // Il match → token colorato
+    tokens.push(best);
+
+    // Avanza dopo il match
+    pos = best.index + best.length;
+    // Safety: se il match è lungo 0 (regex che matcha stringa vuota), avanza di 1
+    if (best.length === 0) pos++;
+  }
+
+  // Converti i token in HTML: escape + wrap in <span> se ha una classe
+  return tokens.map(t => {
+    const e = escHTML(t.text);
+    return t.cls ? `<span class="${t.cls}">${e}</span>` : e;
+  }).join('');
+}
+
+/*
+  ================================================================
+  SEZIONE 6: RENDERING (aggiornamento visuale dell'editor)
+  ================================================================
+*/
+
+/**
+ * render() - Aggiorna TUTTO il display dell'editor
+ * 
+ * Chiamata ad ogni input, click, keyup, cambio tab.
+ * Esegue 4 operazioni:
+ * 1. Rende il textarea trasparente e aggiorna il pre con syntax highlight
+ * 2. Genera i numeri di riga nel gutter
+ * 3. Aggiorna la posizione del cursore nella status bar
+ * 4. Sincronizza l'altezza del textarea con il contenuto
+ */
+function render() {
+  const tab = tabs.find(t => t.id === activeTabId);
+  if (!tab) return;
+  const code = codeArea.value;
+
+  // 1. TEXTAREA TRASPARENTE + HIGHLIGHT LAYER
+  // Il testo del textarea è invisibile ma il cursore è visibile
+  codeArea.style.color = 'transparent';
+  codeArea.style.caretColor = 'var(--fg)';
+
+  // Genera l'HTML colorato e lo inserisce nel <pre> sovrapposto
+  highlightPre.innerHTML = syntaxHighlight(code, tab.lang) + '\n';
+  // Il '\n' finale evita che l'ultima riga collassi se vuota
+
+  // Sincronizza lo scroll orizzontale del pre con l'editor
+  highlightPre.style.transform = `translate(${-editorScroll.scrollLeft}px, 0)`;
+
+  // 2. NUMERI DI RIGA
+  const lines = code.split('\n');
+  // Calcola la riga corrente contando i '\n' prima del cursore
+  const curLine = code.substring(0, codeArea.selectionStart).split('\n').length;
+  let g = '';
+  for (let i = 1; i <= lines.length; i++) {
+    // La riga dove si trova il cursore ha la classe 'active' (testo più chiaro)
+    g += `<div class="gutter-line${i === curLine ? ' active' : ''}">${i}</div>`;
+  }
+  gutterInner.innerHTML = g;
+
+  // 3. STATUS BAR: posizione cursore (Riga X, Col Y)
+  // La colonna è la distanza dal ultimo '\n' prima del cursore
+  const col = codeArea.selectionStart - code.lastIndexOf('\n', codeArea.selectionStart - 1);
+  document.getElementById('statusPos').textContent = `Riga ${curLine}, Col ${col}`;
+
+  // 4. SINCRONIZZAZIONE ALTEZZA
+  // Resetta a 'auto' per ricalcolare, poi usa il massimo tra
+  // altezza del container e altezza del contenuto (scrollHeight)
+  codeArea.style.height = 'auto';
+  codeArea.style.height = Math.max(editorScroll.clientHeight, codeArea.scrollHeight) + 'px';
+}
+
+/*
+  ================================================================
+  SEZIONE 7: EVENT LISTENERS DELL'EDITOR
+  ================================================================
+*/
+
+// Sincronizza lo scroll verticale del gutter con l'editor
+// Quando l'utente scrolla il codice, anche i numeri di riga si muovono
+editorScroll.addEventListener('scroll', () => {
+  gutter.scrollTop = editorScroll.scrollTop;
+});
+
+// Eventi che triggherano il re-render dell'editor
+codeArea.addEventListener('input', () => { render(); markModified(); }); // Ogni carattere digitato
+codeArea.addEventListener('click', render);    // Click per spostare cursore
+codeArea.addEventListener('keyup', render);    // Rilascio tasto (frecce, ecc.)
+codeArea.addEventListener('select', render);   // Selezione testo
+
+/**
+ * KEYDOWN HANDLER - Gestisce Tab, Enter e auto-chiusura parentesi
+ * 
+ * Perché keydown e non keyup? Perché dobbiamo intercettare il tasto
+ * PRIMA che il browser lo gestisca (e.preventDefault()).
+ */
+codeArea.addEventListener('keydown', (e) => {
+  const s = codeArea.selectionStart;   // posizione inizio selezione
+  const en = codeArea.selectionEnd;    // posizione fine selezione
+  const v = codeArea.value;            // tutto il testo
+
+  // ---- TAB: indentazione ----
+  if (e.key === 'Tab') {
+    e.preventDefault();  // Impedisce al browser di cambiare focus
+
+    if (e.shiftKey) {
+      // SHIFT+TAB = de-indenta: rimuove 4 spazi dall'inizio della riga
+      const ls = v.lastIndexOf('\n', s - 1) + 1;  // inizio riga corrente
+      if (v.substring(ls, ls + 4) === '    ') {
+        codeArea.value = v.substring(0, ls) + v.substring(ls + 4);
+        codeArea.selectionStart = codeArea.selectionEnd = Math.max(ls, s - 4);
+      }
+    } else {
+      // TAB = indenta: inserisce 4 spazi alla posizione del cursore
+      codeArea.value = v.substring(0, s) + '    ' + v.substring(en);
+      codeArea.selectionStart = codeArea.selectionEnd = s + 4;
+    }
+    render(); markModified();
+    return;
+  }
+
+  // ---- ENTER: auto-indentazione ----
+  if (e.key === 'Enter') {
+    e.preventDefault();
+
+    // Trova l'inizio della riga corrente
+    const ls = v.lastIndexOf('\n', s - 1) + 1;
+    // Estrae il testo della riga corrente (fino al cursore)
+    const line = v.substring(ls, s);
+    // Cattura l'indentazione corrente (spazi/tab all'inizio)
+    const indent = line.match(/^\s*/)[0];
+    // Ultimo carattere significativo della riga
+    const lc = line.trimEnd().slice(-1);
+
+    // Se la riga finisce con ':' (Python) o '{' (C/C++),
+    // aggiungi un livello extra di indentazione (4 spazi)
+    const extra = (lc === ':' || lc === '{') ? '    ' : '';
+
+    // Costruisce la stringa da inserire: newline + stessa indentazione + eventuale extra
+    const ins = '\n' + indent + extra;
+    codeArea.value = v.substring(0, s) + ins + v.substring(en);
+    codeArea.selectionStart = codeArea.selectionEnd = s + ins.length;
+    render(); markModified();
+    return;
+  }
+
+  // ---- AUTO-CHIUSURA PARENTESI ----
+  // Quando digiti ( { [ viene automaticamente aggiunto ) } ]
+  const pairs = { '(': ')', '{': '}', '[': ']' };
+  if (pairs[e.key] && s === en) {  // solo se non c'è testo selezionato
+    e.preventDefault();
+    // Inserisce la coppia e posiziona il cursore in mezzo
+    codeArea.value = v.substring(0, s) + e.key + pairs[e.key] + v.substring(en);
+    codeArea.selectionStart = codeArea.selectionEnd = s + 1;
+    render(); markModified();
+  }
+});
+
+/*
+  ================================================================
+  SEZIONE 8: GESTIONE TAB (schede multiple)
+  ================================================================
+  Ogni tab rappresenta un file aperto. I dati del tab:
+  - id: identificativo unico
+  - name: nome visualizzato ("nuovo.py", "main.c", ecc.)
+  - lang: linguaggio ('c', 'cpp', 'python')
+  - content: contenuto testuale del file
+  - filePath: percorso/nome file (per salvataggio)
+  - modified: boolean, true se ha modifiche non salvate
+  - cursor: posizione cursore (salvata quando si cambia tab)
+*/
+
+/**
+ * createTab(name, lang, content, filePath) - Crea un nuovo tab
+ * 
+ * Genera un ID unico, aggiunge il tab all'array, lo renderizza
+ * nella tab bar e lo attiva (switchTab).
+ * 
+ * @param {string} name - Nome visualizzato del tab
+ * @param {string} lang - Linguaggio del file
+ * @param {string} content - Contenuto iniziale
+ * @param {string} [filePath] - Percorso file (opzionale, per file aperti)
+ */
+function createTab(name, lang, content, filePath) {
+  const id = tabCounter++;  // ID incrementale
+  tabs.push({
+    id, name, lang, content,
+    filePath: filePath || null,
+    modified: false,
+    cursor: 0
+  });
+  renderTabs();    // Aggiorna la barra tab nel DOM
+  switchTab(id);   // Attiva il nuovo tab
+}
+
+/**
+ * renderTabs() - Ricostruisce la barra tab nel DOM
+ * 
+ * Rimuove tutti i tab esistenti e li ricrea dall'array tabs[].
+ * Ogni tab mostra: pallino (se modificato) + nome + pulsante chiudi.
+ * Il tab attivo ha la classe 'active'.
+ */
+function renderTabs() {
+  const bar = document.getElementById('tabsBar');
+  const add = bar.querySelector('.tab-add');  // Bottone "+"
+  // Rimuovi tutti i tab esistenti
+  bar.querySelectorAll('.tab').forEach(t => t.remove());
+  // Ricrea ogni tab
+  tabs.forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'tab' + (t.id === activeTabId ? ' active' : '') + (t.modified ? ' modified' : '');
+    el.innerHTML = `<span class="dot"></span>${escHTML(t.name)}<span class="close-tab" onclick="event.stopPropagation();closeTab(${t.id})">×</span>`;
+    // event.stopPropagation() evita che il click sulla X attivi anche il click sul tab
+    el.onclick = () => switchTab(t.id);
+    bar.insertBefore(el, add);  // Inserisci prima del bottone "+"
+  });
+}
+
+/**
+ * switchTab(id) - Passa a un tab diverso
+ * 
+ * 1. Salva il contenuto e posizione cursore del tab corrente
+ * 2. Carica il contenuto del nuovo tab nel textarea
+ * 3. Aggiorna select linguaggio, status bar, ecc.
+ * 4. Ripristina la posizione del cursore
+ * 
+ * @param {number} id - ID del tab da attivare
+ */
+function switchTab(id) {
+  // Salva stato del tab corrente prima di cambiare
+  if (activeTabId !== null) {
+    const c = tabs.find(t => t.id === activeTabId);
+    if (c) {
+      c.content = codeArea.value;
+      c.cursor = codeArea.selectionStart;
+    }
+  }
+
+  activeTabId = id;
+  const tab = tabs.find(t => t.id === id);
+  if (!tab) return;
+
+  // Carica il nuovo tab
+  codeArea.value = tab.content;
+  document.getElementById('langSelect').value = tab.lang;
+  document.getElementById('statusLang').textContent = LNAME[tab.lang];
+  document.getElementById('statusFile').textContent = tab.filePath || tab.name;
+  codeArea.setSelectionRange(tab.cursor, tab.cursor);  // Ripristina cursore
+  codeArea.focus();
+  render();
+  renderTabs();
+}
+
+/**
+ * closeTab(id) - Chiude un tab
+ * 
+ * Se il tab ha modifiche non salvate, chiede conferma.
+ * Se era l'ultimo tab, ne crea uno nuovo vuoto.
+ * Se era il tab attivo, attiva il tab adiacente.
+ * 
+ * @param {number} id - ID del tab da chiudere
+ */
+function closeTab(id) {
+  const i = tabs.findIndex(t => t.id === id);
+  if (i === -1) return;
+
+  // Conferma se ci sono modifiche non salvate
+  if (tabs[i].modified && !confirm(`"${tabs[i].name}" non salvato. Chiudere?`)) return;
+
+  tabs.splice(i, 1);  // Rimuovi dall'array
+
+  // Se non ci sono più tab, creane uno nuovo
+  if (!tabs.length) {
+    createTab('nuovo.py', 'python', TEMPLATES.python);
+    return;
+  }
+
+  // Se abbiamo chiuso il tab attivo, attiva il più vicino
+  if (activeTabId === id) {
+    switchTab(tabs[Math.min(i, tabs.length - 1)].id);
+  }
+  renderTabs();
+}
+
+/**
+ * markModified() - Segna il tab attivo come "modificato"
+ * 
+ * Chiamata ad ogni input. Imposta modified=true e aggiorna
+ * la tab bar per mostrare il pallino arancio.
+ */
+function markModified() {
+  const t = tabs.find(t => t.id === activeTabId);
+  if (t && !t.modified) {
+    t.modified = true;
+    renderTabs();
+  }
+}
+
+/*
+  ================================================================
+  SEZIONE 9: OPERAZIONI FILE
+  ================================================================
+*/
+
+/**
+ * newFile() - Crea un nuovo file vuoto
+ * 
+ * Usa il linguaggio attualmente selezionato nel dropdown
+ * e inserisce il template corrispondente.
+ */
+function newFile() {
+  const l = document.getElementById('langSelect').value;
+  createTab('nuovo' + EXT[l], l, TEMPLATES[l]);
+}
+
+/**
+ * openFile() - Apre il dialogo di selezione file del browser
+ * 
+ * Trigghera il click sull'input[type=file] nascosto.
+ * L'evento onchange di quell'input chiamerà handleFileOpen().
+ */
+function openFile() {
+  document.getElementById('fileInput').click();
+}
+
+/**
+ * handleFileOpen(e) - Callback quando un file viene selezionato
+ * 
+ * Legge il file come testo con FileReader, detecta il linguaggio
+ * dall'estensione, e crea un nuovo tab con il contenuto.
+ * 
+ * @param {Event} e - Evento change dell'input file
+ */
+function handleFileOpen(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    // Detect linguaggio dall'estensione
+    let lang = 'python';
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (ext === 'c' || ext === 'h') lang = 'c';
+    else if (['cpp', 'cc', 'cxx', 'hpp'].includes(ext)) lang = 'cpp';
+
+    document.getElementById('langSelect').value = lang;
+    // ev.target.result contiene il testo del file
+    createTab(f.name, lang, ev.target.result, f.name);
+  };
+  reader.readAsText(f);    // Leggi come testo UTF-8
+  e.target.value = '';     // Reset input per permettere di riaprire lo stesso file
+}
+
+/**
+ * saveFile() - Salva il file corrente
+ * 
+ * Se il file ha già un nome (non è "nuovo"), scarica direttamente.
+ * Altrimenti apre il dialogo "Salva come...".
+ */
+function saveFile() {
+  const t = tabs.find(t => t.id === activeTabId);
+  if (!t) return;
+  t.content = codeArea.value;
+
+  // Se è un file nuovo (senza nome reale), chiedi il nome
+  if (!t.filePath || t.filePath.startsWith('nuovo')) {
+    saveFileAs();
+    return;
+  }
+
+  doDownload(t.filePath, t.content);
+  t.modified = false;
+  renderTabs();
+}
+
+/**
+ * saveFileAs() - Salva con nome (apre il dialogo modale)
+ * 
+ * Mostra una modale dove l'utente può scegliere il nome del file.
+ * L'estensione determina automaticamente il linguaggio:
+ * .c/.h → C, .cpp/.cc/.cxx/.hpp → C++, .py/.pyw → Python
+ */
+function saveFileAs() {
+  const t = tabs.find(t => t.id === activeTabId);
+  if (!t) return;
+  t.content = codeArea.value;
+
+  showSaveDialog(t.name || 'programma' + EXT[t.lang], (fn) => {
+    if (!fn) return;
+
+    // Aggiungi estensione se mancante
+    if (!fn.includes('.')) fn += EXT[t.lang];
+
+    // Detecta il linguaggio dalla nuova estensione
+    const fe = fn.split('.').pop().toLowerCase();
+    if (fe === 'c' || fe === 'h') t.lang = 'c';
+    else if (['cpp', 'cc', 'cxx', 'hpp'].includes(fe)) t.lang = 'cpp';
+    else if (['py', 'pyw'].includes(fe)) t.lang = 'python';
+
+    // Aggiorna il tab
+    t.name = fn;
+    t.filePath = fn;
+    t.modified = false;
+
+    // Aggiorna l'interfaccia
+    document.getElementById('langSelect').value = t.lang;
+    document.getElementById('statusLang').textContent = LNAME[t.lang];
+    document.getElementById('statusFile').textContent = fn;
+
+    doDownload(fn, t.content);
+    render();      // Re-render per aggiornare syntax highlight
+    renderTabs();  // Aggiorna nome nella tab bar
+  });
+}
+
+/**
+ * doDownload(name, content) - Scarica un file nel browser
+ * 
+ * TECNICA: Crea un Blob (oggetto binario in memoria) con il contenuto,
+ * genera un URL temporaneo con createObjectURL, crea un <a> invisibile
+ * con attributo download, lo clicca programmaticamente, poi pulisce.
+ * 
+ * Questa è l'unica way per "salvare file" da una web app locale
+ * senza server: il browser scarica il file nella cartella Download.
+ * 
+ * @param {string} name - Nome del file da scaricare
+ * @param {string} content - Contenuto testuale
+ */
+function doDownload(name, content) {
+  const b = new Blob([content], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b);  // URL tipo blob:http://...
+  a.download = name;                 // Suggerisce il nome file al browser
+  a.click();                         // Trigghera il download
+  URL.revokeObjectURL(a.href);       // Libera la memoria del blob
+  appendOutput('✅ Salvato: ' + name, 'ok');
+}
+
+/**
+ * showSaveDialog(def, cb) - Mostra la modale "Salva file come..."
+ * 
+ * Crea dinamicamente un overlay modale con un campo input per il nome.
+ * Al conferma (click Salva o Enter), chiama il callback con il nome.
+ * Al cancel (click Annulla o Escape), rimuove la modale.
+ * 
+ * @param {string} def - Nome predefinito suggerito
+ * @param {function} cb - Callback(filename) chiamata alla conferma
+ */
+function showSaveDialog(def, cb) {
+  const o = document.createElement('div');
+  o.className = 'modal-overlay';
+  o.innerHTML = `<div class="modal"><h3>💾 Salva file come...</h3>
+    <input type="text" id="saveInput" value="${escHTML(def)}">
+    <div class="hint">L'estensione determina il linguaggio (.c .cpp .py)</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="this.closest('.modal-overlay').remove()">Annulla</button>
+      <button class="btn primary" id="saveOk">Salva</button>
+    </div></div>`;
+  document.body.appendChild(o);
+
+  const inp = document.getElementById('saveInput');
+  // Seleziona solo il nome senza estensione, così l'utente può riscriverlo
+  const base = def.replace(/\.\w+$/, '');
+  inp.setSelectionRange(0, base.length);
+  inp.focus();
+
+  // Funzione conferma: chiude la modale e chiama il callback
+  const ok = () => { o.remove(); cb(inp.value.trim()); };
+  document.getElementById('saveOk').onclick = ok;
+  inp.onkeydown = (e) => {
+    if (e.key === 'Enter') ok();
+    if (e.key === 'Escape') o.remove();
+  };
+}
+
+/**
+ * changeLang(lang) - Cambia il linguaggio del tab attivo
+ * 
+ * Aggiorna il linguaggio nel tab, il nome se era "nuovo",
+ * e ri-renderizza per aggiornare il syntax highlighting.
+ * 
+ * @param {string} lang - Nuovo linguaggio ('c', 'cpp', 'python')
+ */
+function changeLang(lang) {
+  const t = tabs.find(t => t.id === activeTabId);
+  if (!t) return;
+  t.lang = lang;
+  // Se il file è ancora "nuovo", aggiorna l'estensione nel nome
+  if (t.name.startsWith('nuovo')) t.name = 'nuovo' + EXT[lang];
+  document.getElementById('statusLang').textContent = LNAME[lang];
+  render();      // Re-highlight con le nuove regole
+  renderTabs();  // Aggiorna nome tab se cambiato
+}
+
+/*
+  ================================================================
+  SEZIONE 10: PANNELLO OUTPUT
+  ================================================================
+*/
+
+/**
+ * appendOutput(text, cls) - Aggiunge un messaggio al pannello output
+ * 
+ * Crea un <span> con la classe CSS appropriata ('ok', 'err', 'info')
+ * e lo appende al contenitore, scrollando automaticamente in basso.
+ * 
+ * @param {string} text - Testo del messaggio
+ * @param {string} [cls] - Classe CSS ('ok', 'err', 'info')
+ */
+function appendOutput(text, cls) {
+  const el = document.getElementById('outputContent');
+  const s = document.createElement('span');
+  if (cls) s.className = cls;
+  s.textContent = text + '\n';
+  el.appendChild(s);
+  el.scrollTop = el.scrollHeight;  // Auto-scroll al fondo
+}
+
+/**
+ * clearOutput() - Pulisce tutto il pannello output
+ */
+function clearOutput() {
+  document.getElementById('outputContent').innerHTML = '';
+}
+
+/**
+ * toggleOutput() - Mostra/nasconde il pannello output
+ * 
+ * Aggiunge/rimuove la classe 'collapsed' che imposta width:0.
+ */
+function toggleOutput() {
+  document.getElementById('outputPane').classList.toggle('collapsed');
+}
+
+/*
+  ================================================================
+  SEZIONE 11: FUNZIONE CERCA (Ctrl+F)
+  ================================================================
+*/
+
+let findMatches = [];  // Array di posizioni (indici) dei match trovati
+let findIdx = -1;      // Indice del match correntemente evidenziato
+
+/**
+ * toggleFind() - Mostra/nasconde la barra di ricerca
+ */
+function toggleFind() {
+  const b = document.getElementById('findBar');
+  b.classList.toggle('visible');
+  if (b.classList.contains('visible')) {
+    document.getElementById('findInput').focus();
+  }
+}
+
+/**
+ * doFind() - Esegue la ricerca nel codice
+ * 
+ * Cerca tutte le occorrenze (case-insensitive) della query
+ * nel testo del textarea. Salva le posizioni in findMatches[].
+ */
+function doFind() {
+  const q = document.getElementById('findInput').value.toLowerCase();
+  findMatches = [];
+  findIdx = -1;
+
+  if (!q) {
+    document.getElementById('findInfo').textContent = '';
+    return;
+  }
+
+  // Scansione lineare: trova tutte le occorrenze
+  const t = codeArea.value.toLowerCase();
+  let p = 0;
+  while ((p = t.indexOf(q, p)) !== -1) {
+    findMatches.push(p);
+    p += q.length;
+  }
+
+  if (findMatches.length) {
+    findIdx = 0;
+    selMatch();  // Evidenzia il primo match
+  }
+  document.getElementById('findInfo').textContent =
+    findMatches.length ? `${findIdx + 1}/${findMatches.length}` : 'Nessuno';
+}
+
+/**
+ * findNext() / findPrev() - Naviga al match successivo/precedente
+ * 
+ * Usa modulo (%) per fare wrap-around: dopo l'ultimo torna al primo.
+ */
+function findNext() {
+  if (!findMatches.length) return;
+  findIdx = (findIdx + 1) % findMatches.length;
+  selMatch();
+}
+
+function findPrev() {
+  if (!findMatches.length) return;
+  // +length prima del modulo per gestire numeri negativi
+  findIdx = (findIdx - 1 + findMatches.length) % findMatches.length;
+  selMatch();
+}
+
+/**
+ * selMatch() - Seleziona (evidenzia) il match corrente nel textarea
+ * 
+ * Usa setSelectionRange per creare una selezione nativa del browser
+ * sulla porzione di testo trovata.
+ */
+function selMatch() {
+  const p = findMatches[findIdx];
+  const l = document.getElementById('findInput').value.length;
+  codeArea.focus();
+  codeArea.setSelectionRange(p, p + l);  // Seleziona il match
+  document.getElementById('findInfo').textContent = `${findIdx + 1}/${findMatches.length}`;
+  render();  // Aggiorna numeri riga e posizione cursore
+}
+
+/*
+  ================================================================
+  SEZIONE 12: COMPILAZIONE & ESECUZIONE
+  ================================================================
+  Due modalità:
+  
+  1. PYTHON LOCALE (Pyodide):
+     Pyodide è un port di CPython compilato in WebAssembly.
+     Gira interamente nel browser, nessun server necessario.
+     Al primo uso scarica ~15MB di runtime da CDN.
+  
+  2. COMPILAZIONE ONLINE (Wandbox):
+     Per C/C++ (e anche Python), invia il codice all'API di Wandbox
+     (https://wandbox.org), un servizio gratuito di compilazione online.
+     Richiede connessione internet.
+*/
+
+/**
+ * loadPyodide_() - Carica e inizializza Pyodide (lazy loading)
+ * 
+ * Pyodide viene caricato solo al primo utilizzo per non rallentare
+ * il caricamento iniziale della pagina.
+ * 
+ * USA UN PATTERN SINGLETON:
+ * - Se già caricato (pyodideReady), restituisce l'istanza
+ * - Se in caricamento (pyodideLoading), aspetta con polling
+ * - Altrimenti, carica lo script e inizializza
+ * 
+ * @returns {Promise<PyodideInstance|null>}
+ */
+async function loadPyodide_() {
+  // Già pronto? Restituisci subito
+  if (pyodideReady) return pyodideInstance;
+
+  // Qualcun altro lo sta già caricando? Aspetta
+  if (pyodideLoading) {
+    appendOutput('⏳ Pyodide in caricamento...', 'info');
+    while (pyodideLoading) await new Promise(r => setTimeout(r, 300));
+    return pyodideInstance;
+  }
+
+  // Prima volta: carica
+  pyodideLoading = true;
+  appendOutput('📦 Caricamento Pyodide (Python nel browser)...', 'info');
+
+  try {
+    // 1. Inietta lo script di Pyodide nella pagina
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js';
+    document.head.appendChild(s);
+    // Aspetta che lo script sia caricato
+    await new Promise((res, rej) => { s.onload = res; s.onerror = rej; });
+
+    // 2. Inizializza Pyodide (scarica il runtime WASM)
+    pyodideInstance = await loadPyodide({
+      indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/'
+    });
+
+    pyodideReady = true;
+    pyodideLoading = false;
+    appendOutput('✅ Pyodide pronto!', 'ok');
+    return pyodideInstance;
+  } catch (e) {
+    pyodideLoading = false;
+    appendOutput('❌ Errore Pyodide: ' + e.message, 'err');
+    return null;
+  }
+}
+
+/**
+ * runPython(code) - Esegue codice Python con Pyodide
+ * 
+ * TECNICA: Redirige sys.stdout e sys.stderr su StringIO
+ * (buffer in memoria) prima dell'esecuzione, poi legge il contenuto
+ * dei buffer dopo l'esecuzione per catturare l'output.
+ * 
+ * @param {string} code - Codice Python da eseguire
+ */
+async function runPython(code) {
+  const py = await loadPyodide_();
+  if (!py) return;
+
+  appendOutput('🐍 Esecuzione Python...\n', 'info');
+
+  try {
+    // Redirige stdout/stderr su buffer in memoria
+    py.runPython('import sys,io;sys.stdout=io.StringIO();sys.stderr=io.StringIO()');
+
+    // Esegue il codice dell'utente (async per supportare top-level await)
+    await py.runPythonAsync(code);
+
+    // Legge l'output catturato
+    const out = py.runPython('sys.stdout.getvalue()');
+    const err = py.runPython('sys.stderr.getvalue()');
+
+    if (out) appendOutput(out, 'ok');
+    if (err) appendOutput(err, 'err');
+    if (!out && !err) appendOutput('(Nessun output)', 'info');
+    appendOutput('✅ Completato.', 'ok');
+  } catch (e) {
+    appendOutput('❌ Errore:\n' + e.message, 'err');
+  }
+}
+
+/**
+ * runOnline(code, lang) - Compila ed esegue online via Wandbox API
+ * 
+ * Wandbox (https://wandbox.org) è un servizio gratuito che fornisce
+ * compilatori online per molti linguaggi. L'API accetta POST JSON.
+ * 
+ * PARAMETRI WANDBOX:
+ * - code: codice sorgente
+ * - compiler: ID del compilatore (es. 'gcc-head-c' per C, 'gcc-head' per C++)
+ * - compiler-option-raw: flag del compilatore separati da \n
+ *   (es. "-O2\n-std=c17" → flag separati, NON separati da spazio!)
+ * - stdin: input standard (vuoto)
+ * - save: false (non salvare il link)
+ * 
+ * RISPOSTA WANDBOX:
+ * - compiler_message: warning/errori del compilatore
+ * - program_output: stdout del programma
+ * - program_error: stderr del programma
+ * - status: exit code
+ * 
+ * @param {string} code - Codice sorgente
+ * @param {string} lang - 'c', 'cpp', o 'python'
+ */
+async function runOnline(code, lang) {
+  appendOutput(`🌐 Compilazione ${LNAME[lang]} online...`, 'info');
+
+  try {
+    // Scegli il compilatore in base al linguaggio
+    const compiler = lang === 'c' ? 'gcc-head-c' : lang === 'cpp' ? 'gcc-head' : 'cpython-3';
+
+    // Flag compilatore: SEPARATI DA \n (non da spazio!)
+    // Wandbox interpreta ogni riga come un flag separato
+    const opt = lang !== 'python' ? '-O2\n-std=' + (lang === 'c' ? 'c17' : 'c++17') : '';
+
+    const res = await fetch('https://wandbox.org/api/compile.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        compiler,
+        stdin: '',
+        'compiler-option-raw': opt,
+        save: false
+      })
+    });
+
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const r = await res.json();
+
+    // Mostra i risultati nel pannello output
+    if (r.compiler_message) {
+      appendOutput('⚠️ Compilatore:\n' + r.compiler_message,
+        r.compiler_message.toLowerCase().includes('error') ? 'err' : 'info');
+    }
+    if (r.program_output) appendOutput('📤 Output:\n' + r.program_output, 'ok');
+    if (r.program_error) appendOutput('❌ Runtime:\n' + r.program_error, 'err');
+    if (!r.compiler_message && !r.program_output && !r.program_error) {
+      appendOutput('✅ OK (nessun output).', 'ok');
+    }
+    appendOutput('✅ Completato.', 'ok');
+  } catch (e) {
+    appendOutput('❌ Errore connessione: ' + e.message, 'err');
+    appendOutput('ℹ️ Alternative: onlinegdb.com, godbolt.org, replit.com', 'info');
+  }
+}
+
+/**
+ * runCode() - Bottone "Esegui" (F5)
+ * 
+ * Per Python: usa Pyodide (esecuzione locale nel browser)
+ * Per C/C++: avvisa di usare "Compila&Esegui" (serve compilazione)
+ */
+function runCode() {
+  const t = tabs.find(t => t.id === activeTabId);
+  if (!t) return;
+  t.content = codeArea.value;
+  clearOutput();
+
+  if (t.lang === 'python') {
+    runPython(codeArea.value);  // Esecuzione locale
+  } else {
+    // C/C++ non può girare nel browser senza compilazione
+    appendOutput(`ℹ️ ${LNAME[t.lang]} richiede compilazione. Usa "Compila&Esegui".`, 'info');
+  }
+}
+
+/**
+ * compileAndRun() - Bottone "Compila & Esegui" (F6)
+ * 
+ * Invia il codice a Wandbox per compilazione ed esecuzione remota.
+ * Funziona per tutti e tre i linguaggi.
+ */
+function compileAndRun() {
+  const t = tabs.find(t => t.id === activeTabId);
+  if (!t) return;
+  t.content = codeArea.value;
+  clearOutput();
+  runOnline(codeArea.value, t.lang);
+}
+
+/*
+  ================================================================
+  SEZIONE 13: SHORTCUT DA TASTIERA GLOBALI
+  ================================================================
+  Listener a livello document per intercettare combinazioni di tasti
+  in qualsiasi punto della pagina.
+  preventDefault() blocca il comportamento default del browser
+  (es. Ctrl+S salva la pagina HTML, noi vogliamo salvare il codice).
+*/
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveFile(); }      // Salva
+  if (e.ctrlKey && e.key === 'o') { e.preventDefault(); openFile(); }      // Apri
+  if (e.ctrlKey && e.key === 'n') { e.preventDefault(); newFile(); }       // Nuovo
+  if (e.ctrlKey && e.key === 'f') { e.preventDefault(); toggleFind(); }    // Cerca
+  if (e.key === 'F5') { e.preventDefault(); runCode(); }                    // Esegui
+  if (e.key === 'F6') { e.preventDefault(); compileAndRun(); }              // Compila
+});
+
+/*
+  ================================================================
+  SEZIONE 14: DRAG & DROP
+  ================================================================
+  Permette di trascinare un file direttamente sull'editor per aprirlo.
+  
+  dragover: preventDefault necessario per abilitare il drop
+  drop: legge il file e crea un nuovo tab
+*/
+codeArea.addEventListener('dragover', (e) => e.preventDefault());
+codeArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];  // Prendi il primo file trascinato
+  if (!f) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    // Detect linguaggio dall'estensione (come in handleFileOpen)
+    let lang = 'python';
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (ext === 'c' || ext === 'h') lang = 'c';
+    else if (['cpp', 'cc', 'cxx', 'hpp'].includes(ext)) lang = 'cpp';
+    document.getElementById('langSelect').value = lang;
+    createTab(f.name, lang, ev.target.result, f.name);
+  };
+  reader.readAsText(f);
+});
+
+/*
+  ================================================================
+  SEZIONE 15: INIZIALIZZAZIONE
+  ================================================================
+  Crea il primo tab con un template Python.
+  Questo è l'ultima cosa che viene eseguita al caricamento della pagina.
+*/
+createTab('nuovo.py', 'python', TEMPLATES.python);
+</script>
+</body>
+</html>
